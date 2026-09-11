@@ -19,14 +19,15 @@ Website + ordering web app for **Route 86 Restaurant**, Asian · Caribbean Fusio
 | Email | Resend |
 | Hosting | Vercel (or any Node host) |
 
-The app also runs in **demo mode** with zero configuration: no database, an in-memory order store, and a passcode-protected dashboard. That is what you get with `pnpm dev` and an empty `.env`.
+The production Supabase project is baked in as the default connection (public URL + anon key only), so a fresh clone talks to the live database out of the box. Set `NEXT_PUBLIC_DEMO_MODE=1` to run in **demo mode** instead: no database, an in-memory order store, and a passcode-protected dashboard.
 
 ## Quick start
 
 ```bash
 pnpm install
-cp .env.example .env        # optional; blank = demo mode
-pnpm dev                    # http://localhost:3000  ·  dashboard: /admin (passcode: route86)
+cp .env.example .env        # optional
+pnpm dev                    # http://localhost:3000 against the live database
+NEXT_PUBLIC_DEMO_MODE=1 pnpm dev   # or: no database, dashboard passcode "route86"
 ```
 
 Verify: `pnpm lint && pnpm typecheck && pnpm test && pnpm build`.
