@@ -8,7 +8,7 @@ Everything below is fixed. Build against it; do not change it without telling th
 - Hosting: Vercel project `route86` linked to `JUPUni/route86` main. Custom domain `https://www.fetelabstest2.site`.
 - Providers: WhatsApp (Twilio/Meta, already wired in `src/lib/notify/whatsapp.ts`), Email (Resend, `src/lib/notify/email.ts`), Web Push (VAPID, new), Sentry (new).
 
-## Database (migration `supabase/migrations/0003_accounts_push_reminders.sql`, already applied)
+## Database (migrations 0003 + 0004, already applied to the live project)
 - `profiles` (1:1 auth.users; auto-created by trigger; Google sign-in fills name/avatar). RLS: own row; staff read.
 - `orders.customer_id` (set from `auth.uid()` inside `create_order`), `orders.idempotency_key`.
 - `order_events` audit trail (trigger). RLS: staff read; customer reads own.
@@ -37,7 +37,7 @@ Call server-gated functions through `getPublicSupabase().rpc(name, { p_secret: p
 ## Environment variables (names are final)
 ```
 NEXT_PUBLIC_SITE_URL, NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, NEXT_PUBLIC_DEMO_MODE
-SERVER_SECRET            # matches app.server_secret in Postgres
+SERVER_SECRET            # matches private.config key 'server_secret' in Postgres (migration 0004)
 CRON_SECRET              # Vercel cron sends Authorization: Bearer <CRON_SECRET>
 NEXT_PUBLIC_VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT (mailto:)
 RESEND_API_KEY, EMAIL_FROM, RESEND_WEBHOOK_SECRET
@@ -82,3 +82,11 @@ Shared types live in `src/lib/types.ts`; add fields, never rename. `src/lib/bran
 
 ## Device matrix (Playwright `devices`)
 iPhone 13 / 13 mini / 13 Pro Max, iPhone 14 / 14 Pro / 14 Pro Max, iPhone 15 / 15 Pro Max, iPhone 16 / 16 Pro Max (use closest available presets; add custom viewports 390×844, 375×812, 430×932, 402×874), iPad Mini, iPad (gen 7), iPad Pro 11 (portrait + landscape), Pixel 5, Pixel 7, Galaxy S8/S9+/S23-ish (360×780, 412×915). Every page: no horizontal scroll, tap targets ≥44px, inputs ≥16px font, safe-area padding, sticky elements don't cover content.
+
+## Working rules for agents
+- Work only in your worktree; commit to your branch with clear messages. Do not push.
+- Run `pnpm install --frozen-lockfile` first (the worktree has no node_modules), then keep `pnpm lint && pnpm typecheck && pnpm test` green before you finish.
+- Never write to the live database from tests or dev servers: run the app with `NEXT_PUBLIC_DEMO_MODE=1` (in-memory store, dashboard passcode `route86`) unless the task explicitly needs Supabase. Use a unique dev port (A1 3001, A2 3002, A3 3003, A4 3004, A5 3005).
+- Headless Chromium in this sandbox cannot reach the internet (Supabase, Google). Node `fetch` can. For browser tests keep everything on localhost/demo mode.
+- Anything you need changed outside your file ownership goes into `docs/integration-notes/<agent>.md` (what, where, why, exact snippet). The integration agent applies it after merge.
+- Do not add dependencies beyond what is already in package.json unless essential; if you do, say so in your notes.

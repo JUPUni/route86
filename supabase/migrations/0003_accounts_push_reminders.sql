@@ -1,8 +1,8 @@
 -- Route 86 v2 · customer accounts (Google sign-in), web push, reminders, audit trail,
 -- rate limiting, idempotency, and secret-gated server functions.
 -- The app server holds only the anon key. Privileged server-side reads/writes go through
--- SECURITY DEFINER functions that require the shared secret stored in the database setting
--- app.server_secret (set with: alter database postgres set app.server_secret = '...').
+-- SECURITY DEFINER functions that require the shared secret stored in private.config
+-- (key 'server_secret'; see 0004_private_server_config.sql). The same value is SERVER_SECRET in the app env.
 
 -- ---------- helpers ----------
 create or replace function public.check_server_secret(p_secret text)
