@@ -1,5 +1,7 @@
 # Route 86 · online ordering platform
 
+Live at **https://www.fetelabstest2.site** (Vercel) · database on Supabase.
+
 Website + ordering web app for **Route 86 Restaurant**, Asian · Caribbean Fusion, George Hill Main Road (next to AXA Airport), Anguilla.
 
 - Customers browse the menu, build an order (pickup or delivery) and get a live **boarding-pass style tracking page**.
