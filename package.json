@@ -14,6 +14,7 @@
     "seed:remote": "node scripts/seed-remote.mts"
   },
   "dependencies": {
+    "@sentry/nextjs": "^10.74.0",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.116.0",
     "clsx": "^2.1.1",
@@ -23,16 +24,19 @@
     "react-dom": "19.2.8",
     "resend": "^6.27.0",
     "twilio": "^6.1.1",
+    "web-push": "^3.6.7",
     "zod": "^4.6.2",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/web-push": "^3.6.4",
     "@vitejs/plugin-react": "^6.1.1",
     "eslint": "^9",
     "eslint-config-next": "16.3.4",
