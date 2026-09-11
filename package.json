@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "seed:sql": "rm -rf .seed-tmp && npx tsc src/lib/seed-menu.ts --outDir .seed-tmp --module nodenext --moduleResolution nodenext --target es2022 --skipLibCheck && node scripts/gen-seed.mjs > supabase/seed.sql && rm -rf .seed-tmp",
