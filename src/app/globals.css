@@ -1,0 +1,111 @@
+@import "tailwindcss";
+
+/* ---------- Route 86 design tokens ---------- */
+:root {
+  --r86-orange: #d95a00;
+  --r86-orange-bright: #f26b12;
+  --r86-orange-soft: #ffb27a;
+  --r86-charcoal: #1b1b1b;
+  --r86-ink: #2b2b2b;
+  --r86-cream: #f6efe4;
+  --r86-sand: #efe3d0;
+  --r86-white: #fffdf9;
+  --r86-palm: #1f6b4a;
+  --r86-lime: #b9e14a;
+  --background: var(--r86-cream);
+  --foreground: var(--r86-charcoal);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-orange: var(--r86-orange);
+  --color-orange-bright: var(--r86-orange-bright);
+  --color-orange-soft: var(--r86-orange-soft);
+  --color-charcoal: var(--r86-charcoal);
+  --color-ink: var(--r86-ink);
+  --color-cream: var(--r86-cream);
+  --color-sand: var(--r86-sand);
+  --color-offwhite: var(--r86-white);
+  --color-palm: var(--r86-palm);
+  --color-lime: var(--r86-lime);
+  --font-display: var(--font-anton), Impact, "Arial Narrow Bold", sans-serif;
+  --font-brand: var(--font-quicksand), "Segoe UI", sans-serif;
+  --font-sans: var(--font-nunito), system-ui, sans-serif;
+  --font-script: var(--font-caveat), "Comic Sans MS", cursive;
+  --radius-blob: 1.75rem;
+  --shadow-pop: 6px 6px 0 0 var(--r86-charcoal);
+  --shadow-pop-orange: 6px 6px 0 0 var(--r86-orange);
+  --animate-marquee: marquee 28s linear infinite;
+  --animate-pulse-ring: pulse-ring 1.6s ease-out infinite;
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-shake: shake 0.6s ease-in-out;
+}
+
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 rgba(242, 107, 18, 0.55); }
+  100% { box-shadow: 0 0 0 18px rgba(242, 107, 18, 0); }
+}
+@keyframes float {
+  0%, 100% { transform: translateY(0) rotate(-2deg); }
+  50% { transform: translateY(-12px) rotate(2deg); }
+}
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-4px); }
+  40%, 80% { transform: translateX(4px); }
+}
+
+html { scroll-behavior: smooth; }
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Subtle paper grain, like the brand's brush-stroke promos */
+.grain::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.08;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Brush-stroke highlight behind headline words */
+.brush {
+  position: relative;
+  display: inline-block;
+  padding: 0 0.15em;
+  isolation: isolate;
+}
+.brush::before {
+  content: "";
+  position: absolute;
+  inset: 8% -4% 6% -4%;
+  z-index: -1;
+  background: var(--r86-orange);
+  border-radius: 40% 55% 45% 60% / 55% 40% 60% 45%;
+  transform: rotate(-1.5deg);
+}
+.brush-dark::before { background: var(--r86-charcoal); }
+.brush-cream::before { background: var(--r86-cream); }
+
+.display { font-family: var(--font-display); letter-spacing: 0.01em; text-transform: uppercase; line-height: 0.92; }
+.brand { font-family: var(--font-brand); font-weight: 700; }
+.script { font-family: var(--font-script); }
+
+.marquee-track { display: flex; width: max-content; animation: var(--animate-marquee); }
+.marquee:hover .marquee-track { animation-play-state: paused; }
+
+/* Dashed "boarding pass" tear line */
+.tear { background-image: radial-gradient(circle, var(--r86-cream) 7px, transparent 8px); background-size: 20px 20px; background-position: -10px 0; }
+
+/* Hide number input spinners */
+input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; }
