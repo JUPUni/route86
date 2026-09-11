@@ -19,9 +19,16 @@ export function eventForStatus(status: OrderStatus): NotifyEvent | null {
 /** Which events actually message the customer. "preparing" is intentionally quiet to avoid spam. */
 export const CUSTOMER_EVENTS: NotifyEvent[] = ["order_received", "order_ready", "order_out_for_delivery", "order_cancelled"];
 
+/** Public site origin: explicit env, else Vercel's production URL, else local dev. */
+export function siteUrl(): string {
+  const explicit = process.env.NEXT_PUBLIC_SITE_URL;
+  if (explicit) return explicit.replace(/\/$/, "");
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
+  return "http://localhost:3000";
+}
+
 export function trackingUrl(orderId: string): string {
-  const base = (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/$/, "");
-  return `${base}/order/${orderId}`;
+  return `${siteUrl()}/order/${orderId}`;
 }
 
 function itemLines(order: Order): string {
@@ -98,7 +105,7 @@ export function emailHtml(event: NotifyEvent, order: Order): string {
 }
 
 export function storeNewOrderText(order: Order): string {
-  return `🔔 *NEW ORDER ${order.order_number}* (${order.fulfillment_type})\n${order.customer_name} · ${order.customer_phone}\n\n${itemLines(order)}\n\nTotal ${formatMoney(order.total_cents)}${order.notes ? `\nNotes: ${order.notes}` : ""}${order.delivery_address ? `\nAddress: ${order.delivery_address}` : ""}\n\nOpen the board: ${(process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/$/, "")}/admin`;
+  return `🔔 *NEW ORDER ${order.order_number}* (${order.fulfillment_type})\n${order.customer_name} · ${order.customer_phone}\n\n${itemLines(order)}\n\nTotal ${formatMoney(order.total_cents)}${order.notes ? `\nNotes: ${order.notes}` : ""}${order.delivery_address ? `\nAddress: ${order.delivery_address}` : ""}\n\nOpen the board: ${siteUrl()}/admin`;
 }
 
 function escapeHtml(s: string): string {
