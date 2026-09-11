@@ -1,6 +1,7 @@
 import "server-only";
-import { getAdminSupabase } from "./supabase/admin";
+import { getPublicSupabase } from "./supabase/public";
 import { isSupabaseConfigured } from "./supabase/env";
+import { requireStaffClient } from "./auth";
 import { SEED_CATEGORIES, SEED_ITEMS } from "./seed-menu";
 import { demoState } from "./demo-store";
 import { BRAND } from "./brand";
@@ -36,34 +37,35 @@ export function isDemoMode(): boolean {
 }
 
 export async function getSettings(): Promise<StoreSettings> {
-  const admin = getAdminSupabase();
-  if (!admin) return { ...DEFAULT_SETTINGS, ...demoState().settings };
-  const { data } = await admin.from("settings").select("*").eq("id", 1).maybeSingle();
+  const db = getPublicSupabase();
+  if (!db) return { ...DEFAULT_SETTINGS, ...demoState().settings };
+  const { data } = await db.from("settings").select("*").eq("id", 1).maybeSingle();
   return data ? ({ ...DEFAULT_SETTINGS, ...data, tax_rate: Number(data.tax_rate) } as StoreSettings) : DEFAULT_SETTINGS;
 }
 
+/** Staff only (RLS). */
 export async function updateSettings(patch: Partial<StoreSettings>): Promise<StoreSettings> {
-  const admin = getAdminSupabase();
-  if (!admin) {
+  if (isDemoMode()) {
     const s = demoState();
     s.settings = { ...s.settings, ...patch };
     return { ...DEFAULT_SETTINGS, ...s.settings };
   }
-  const { data, error } = await admin.from("settings").upsert({ id: 1, ...patch }).select("*").single();
+  const db = await requireStaffClient();
+  const { data, error } = await db.from("settings").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", 1).select("*").single();
   if (error) throw new Error(error.message);
   return { ...DEFAULT_SETTINGS, ...data, tax_rate: Number(data.tax_rate) } as StoreSettings;
 }
 
 export async function getMenu(opts: { includeUnavailable?: boolean } = {}): Promise<{ categories: MenuCategory[]; items: MenuItem[] }> {
-  const admin = getAdminSupabase();
-  if (!admin) {
+  const db = getPublicSupabase();
+  if (!db) {
     const av = demoState().availability;
     const items = SEED_ITEMS.map((i) => ({ ...i, available: av.has(i.id) ? av.get(i.id)! : i.available }));
     return { categories: SEED_CATEGORIES, items: opts.includeUnavailable ? items : items.filter((i) => i.available) };
   }
   const [{ data: categories }, { data: items }] = await Promise.all([
-    admin.from("menu_categories").select("*").eq("active", true).order("sort_order"),
-    admin.from("menu_items").select("*").order("sort_order"),
+    db.from("menu_categories").select("*").eq("active", true).order("sort_order"),
+    db.from("menu_items").select("*").order("sort_order"),
   ]);
   const list = (items || []) as MenuItem[];
   return {
@@ -72,22 +74,14 @@ export async function getMenu(opts: { includeUnavailable?: boolean } = {}): Prom
   };
 }
 
-export async function setItemAvailability(id: string, available: boolean): Promise<void> {
-  const admin = getAdminSupabase();
-  if (!admin) {
-    demoState().availability.set(id, available);
-    return;
-  }
-  const { error } = await admin.from("menu_items").update({ available }).eq("id", id);
-  if (error) throw new Error(error.message);
-}
-
+/** Staff only (RLS). */
 export async function updateMenuItem(id: string, patch: Partial<Pick<MenuItem, "name" | "description" | "price_cents" | "image_url" | "featured" | "available" | "tags">>): Promise<void> {
-  const admin = getAdminSupabase();
-  if (!admin) {
+  if (isDemoMode()) {
     if (typeof patch.available === "boolean") demoState().availability.set(id, patch.available);
     return;
   }
-  const { error } = await admin.from("menu_items").update(patch).eq("id", id);
+  const db = await requireStaffClient();
+  const { error, count } = await db.from("menu_items").update(patch, { count: "exact" }).eq("id", id);
   if (error) throw new Error(error.message);
+  if (count === 0) throw new Error("Item not found or not permitted");
 }

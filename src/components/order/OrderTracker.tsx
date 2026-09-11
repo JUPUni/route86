@@ -42,7 +42,7 @@ export function OrderTracker({ initial, justPlaced, realtime }: { initial: Publi
         }
       } catch {}
     };
-    const interval = setInterval(refresh, realtime ? 15000 : 4000);
+    const interval = setInterval(refresh, realtime ? 8000 : 4000);
     const supabase = realtime ? getBrowserSupabase() : null;
     const channel = supabase
       ?.channel(`order:${order.id}`)

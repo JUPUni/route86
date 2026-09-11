@@ -2,7 +2,6 @@ import "server-only";
 import { cookies } from "next/headers";
 import { SignJWT, jwtVerify } from "jose";
 import { getServerSupabase } from "./supabase/server";
-import { getAdminSupabase } from "./supabase/admin";
 import { isSupabaseConfigured } from "./supabase/env";
 
 export type StaffSession = { email: string; name: string | null; role: string; mode: "supabase" | "demo" };
@@ -53,9 +52,16 @@ export async function getStaffSession(): Promise<StaffSession | null> {
   const { data } = await supabase.auth.getUser();
   const email = data.user?.email;
   if (!email) return null;
-  const admin = getAdminSupabase();
-  if (!admin) return null;
-  const { data: staff } = await admin.from("staff").select("email,name,role").ilike("email", email).maybeSingle();
+  // RLS: staff can read the staff table, so a non-staff login sees nothing here.
+  const { data: staff } = await supabase.from("staff").select("email,name,role").ilike("email", email).maybeSingle();
   if (!staff) return null;
   return { email: staff.email, name: staff.name, role: staff.role, mode: "supabase" };
+}
+
+/** Cookie-bound client for a verified staff member, or throws. */
+export async function requireStaffClient() {
+  const session = await getStaffSession();
+  const supabase = await getServerSupabase();
+  if (!session || !supabase) throw new Error("Unauthorized");
+  return supabase;
 }

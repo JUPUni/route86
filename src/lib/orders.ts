@@ -1,11 +1,12 @@
 import "server-only";
 import { z } from "zod";
-import { getAdminSupabase } from "./supabase/admin";
+import { getPublicSupabase } from "./supabase/public";
+import { requireStaffClient } from "./auth";
 import { demoState } from "./demo-store";
-import { getMenu, getSettings } from "./data";
+import { getMenu, getSettings, isDemoMode } from "./data";
 import { computeTotals, lineUnitPrice, normalizePhone } from "./pricing";
 import { ORDER_STATUSES, type OrderStatus } from "./brand";
-import type { CartLine, NotificationLog, Order, OrderItem } from "./types";
+import type { CartLine, NotificationLog, Order } from "./types";
 
 export const orderInputSchema = z.object({
   fulfillment_type: z.enum(["pickup", "delivery"]),
@@ -105,8 +106,7 @@ export async function createOrder(raw: unknown): Promise<Order> {
     notes: l.notes || null,
   }));
 
-  const admin = getAdminSupabase();
-  if (!admin) {
+  if (isDemoMode()) {
     const s = demoState();
     const id = crypto.randomUUID();
     const order: Order = {
@@ -124,24 +124,62 @@ export async function createOrder(raw: unknown): Promise<Order> {
     return order;
   }
 
-  const { data: order, error } = await admin.from("orders").insert(base).select("*").single();
-  if (error) throw new OrderError(error.message, 500);
-  const { data: items, error: itemsErr } = await admin
-    .from("order_items")
-    .insert(itemRows.map((r) => ({ ...r, order_id: order.id })))
-    .select("*");
-  if (itemsErr) throw new OrderError(itemsErr.message, 500);
-  return { ...(order as Order), items: (items || []) as OrderItem[] };
+  // Supabase: the SECURITY DEFINER function re-prices every line from menu_items, so the
+  // totals above are only used for the demo path; the database is the source of truth.
+  const db = getPublicSupabase()!;
+  const { data, error } = await db.rpc("create_order", {
+    p: {
+      fulfillment_type: input.fulfillment_type,
+      payment_method: input.payment_method,
+      customer_name: input.customer_name,
+      customer_phone: phone,
+      customer_email: input.customer_email || null,
+      delivery_address: input.delivery_address || null,
+      notes: input.notes || null,
+      notify_whatsapp: input.notify_whatsapp,
+      notify_email: input.notify_email,
+      source: "web",
+      items: lines.map((l) => ({ menu_item_id: l.itemId, quantity: l.quantity, notes: l.notes || null, selections: l.selections.map((x) => ({ groupId: x.groupId, choiceId: x.choiceId })) })),
+    },
+  });
+  if (error) throw mapDbError(error.message);
+  return data as Order;
 }
 
+function mapDbError(message: string): OrderError {
+  if (message.includes("ORDERS_PAUSED")) return new OrderError("We're not taking online orders right now. Please call us.", 409);
+  if (message.includes("DELIVERY_OFF")) return new OrderError("Delivery is unavailable right now. Pickup is open!", 409);
+  if (message.includes("PICKUP_OFF")) return new OrderError("Pickup is unavailable right now.", 409);
+  if (message.includes("ITEM_UNAVAILABLE")) return new OrderError("Sorry, one of your items just sold out. Please update your cart.", 409);
+  if (message.includes("MISSING_OPTION")) return new OrderError("Please choose all required options.", 400);
+  if (message.includes("BELOW_MINIMUM")) return new OrderError("Your order is below the delivery minimum.", 400);
+  if (message.includes("EMPTY_CART")) return new OrderError("Your cart is empty.", 400);
+  console.error("[create_order]", message);
+  return new OrderError("Something went wrong placing your order. Please call us.", 500);
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Staff only: full order with items (RLS). */
 export async function getOrder(id: string): Promise<Order | null> {
-  if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
-  const admin = getAdminSupabase();
-  if (!admin) return demoState().orders.get(id) ?? null;
-  const { data: order } = await admin.from("orders").select("*").eq("id", id).maybeSingle();
-  if (!order) return null;
-  const { data: items } = await admin.from("order_items").select("*").eq("order_id", id);
-  return { ...(order as Order), items: (items || []) as OrderItem[] };
+  if (!UUID.test(id)) return null;
+  if (isDemoMode()) return demoState().orders.get(id) ?? null;
+  const db = await requireStaffClient();
+  const { data } = await db.from("orders").select("*, items:order_items(*)").eq("id", id).maybeSingle();
+  return (data as Order) ?? null;
+}
+
+/** Public: the limited tracking view, by UUID only. */
+export async function getPublicOrder(id: string): Promise<PublicOrder | null> {
+  if (!UUID.test(id)) return null;
+  if (isDemoMode()) {
+    const o = demoState().orders.get(id);
+    return o ? publicOrderView(o) : null;
+  }
+  const db = getPublicSupabase()!;
+  const { data, error } = await db.rpc("get_public_order", { p_id: id });
+  if (error || !data) return null;
+  return data as PublicOrder;
 }
 
 /** Fields safe to show the customer on the public tracking page. */
@@ -169,12 +207,12 @@ export type PublicOrder = ReturnType<typeof publicOrderView>;
 export async function listOrders(opts: { active?: boolean; limit?: number } = {}): Promise<Order[]> {
   const limit = opts.limit ?? 100;
   const activeStatuses: OrderStatus[] = ["received", "preparing", "ready", "out_for_delivery"];
-  const admin = getAdminSupabase();
-  if (!admin) {
+  if (isDemoMode()) {
     const all = [...demoState().orders.values()].sort((a, b) => b.created_at.localeCompare(a.created_at));
     return (opts.active ? all.filter((o) => activeStatuses.includes(o.status)) : all).slice(0, limit);
   }
-  let q = admin.from("orders").select("*, items:order_items(*)").order("created_at", { ascending: false }).limit(limit);
+  const db = await requireStaffClient();
+  let q = db.from("orders").select("*, items:order_items(*)").order("created_at", { ascending: false }).limit(limit);
   if (opts.active) q = q.in("status", activeStatuses);
   const { data } = await q;
   return (data || []) as Order[];
@@ -208,47 +246,48 @@ export async function updateOrderStatus(
   if (status === "cancelled") patch.cancelled_at = now;
   if (status === "received") { patch.cancelled_at = null; patch.cancel_reason = null; }
 
-  const admin = getAdminSupabase();
-  if (!admin) {
+  if (isDemoMode()) {
     const updated = { ...current, ...patch };
     demoState().orders.set(id, updated);
     return updated;
   }
-  const { error } = await admin.from("orders").update(patch).eq("id", id);
+  const db = await requireStaffClient();
+  const { error, count } = await db.from("orders").update(patch, { count: "exact" }).eq("id", id);
   if (error) throw new OrderError(error.message, 500);
+  if (count === 0) throw new OrderError("Not permitted", 403);
   return { ...current, ...patch };
 }
 
 /**
- * Push a realtime event to the customer's tracking page (topic order:{id}) and the staff board.
- * Uses Supabase Realtime broadcast over HTTP; a no-op in demo mode (the client polls instead).
+ * Realtime fan-out is done by a Postgres trigger (orders_broadcast) on insert/update, so the app
+ * server has nothing to send. Kept as a no-op hook in case a provider needs a push later.
  */
-export async function broadcastOrder(order: Order, event: "new" | "status"): Promise<void> {
-  const admin = getAdminSupabase();
-  if (!admin) return;
-  const payload = publicOrderView(order);
-  try {
-    await Promise.all([
-      admin.channel(`order:${order.id}`).send({ type: "broadcast", event: "status", payload }),
-      admin.channel("store:orders").send({ type: "broadcast", event, payload: { id: order.id, status: order.status, order_number: order.order_number } }),
-    ]);
-  } catch (e) {
-    console.warn("[realtime] broadcast failed", e);
-  }
+export async function broadcastOrder(_order: Order, _event: "new" | "status"): Promise<void> {
+  void _order;
+  void _event;
 }
 
 export async function logNotification(entry: Omit<NotificationLog, "id" | "created_at">): Promise<void> {
-  const admin = getAdminSupabase();
-  if (!admin) {
-    console.info(`[notify:${entry.status}] ${entry.channel} → ${entry.recipient} (${entry.event}) ${entry.error ?? ""}`);
-    return;
-  }
-  await admin.from("notifications").insert(entry);
+  console.info(`[notify:${entry.status}] ${entry.channel} → ${entry.recipient} (${entry.event}) ${entry.error ?? ""}`);
+  const db = getPublicSupabase();
+  if (!db) return;
+  const { error } = await db.rpc("log_notification", {
+    p_order_id: entry.order_id,
+    p_channel: entry.channel,
+    p_event: entry.event,
+    p_recipient: entry.recipient,
+    p_provider: entry.provider,
+    p_provider_id: entry.provider_id,
+    p_status: entry.status,
+    p_error: entry.error,
+  });
+  if (error) console.warn("[notify] log failed", error.message);
 }
 
+/** Staff only (RLS). */
 export async function listNotifications(orderId: string): Promise<NotificationLog[]> {
-  const admin = getAdminSupabase();
-  if (!admin) return [];
-  const { data } = await admin.from("notifications").select("*").eq("order_id", orderId).order("created_at", { ascending: false });
+  if (isDemoMode()) return [];
+  const db = await requireStaffClient();
+  const { data } = await db.from("notifications").select("*").eq("order_id", orderId).order("created_at", { ascending: false });
   return (data || []) as NotificationLog[];
 }

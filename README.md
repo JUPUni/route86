@@ -12,7 +12,7 @@ Website + ordering web app for **Route 86 Restaurant**, Asian · Caribbean Fusio
 | Layer | Choice |
 | --- | --- |
 | App | Next.js 16 (App Router, React 19, TypeScript), Tailwind CSS v4 |
-| Data + realtime + auth | Supabase (Postgres, Realtime broadcast + postgres_changes, Auth) |
+| Data + realtime + auth | Supabase (Postgres, RLS, SECURITY DEFINER functions, Realtime, Auth). No service-role key anywhere. |
 | WhatsApp | Twilio WhatsApp **or** Meta WhatsApp Cloud API (switch with one env var) |
 | Email | Resend |
 | Hosting | Vercel (or any Node host) |
@@ -31,13 +31,17 @@ Verify: `pnpm lint && pnpm typecheck && pnpm test && pnpm build`.
 
 ## Going live
 
-### 1. Supabase
+### 1. Supabase (already provisioned for this repo)
 
-1. Create a project, then run `supabase/migrations/0001_init.sql` followed by `supabase/seed.sql` in the SQL editor (or `supabase db push` + `psql -f supabase/seed.sql`).
-2. Add staff: `insert into staff (email, name, role) values ('owner@route86.ai', 'Rana', 'owner');` and create the same user under **Authentication → Users** with a password.
-3. Set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`.
+The production project lives at `https://xcknmpgiondscrgysyfb.supabase.co` and `.env.production` carries its public URL + anon key, so a fresh deployment needs **no database env vars**. Everything privileged runs inside `SECURITY DEFINER` functions (`create_order`, `get_public_order`, `log_notification`) and row-level security; staff sign in with Supabase Auth and must exist in the `staff` table.
 
-The `orders` table is added to the `supabase_realtime` publication by the migration; row-level security only lets staff read it. Customers track orders through `/api/orders/[id]` (UUID = the only credential) plus a public broadcast channel `order:{id}`.
+To set up a new project from scratch: run `supabase/migrations/0001_init.sql` then `0002_rpc_and_realtime.sql` in the SQL editor, create a staff user under **Authentication → Users**, insert their email into `staff`, then seed the menu through their login:
+
+```bash
+STAFF_EMAIL=owner@example.com STAFF_PASSWORD=... pnpm seed:remote
+```
+
+Re-running `pnpm seed:remote` re-syncs names, prices and descriptions from `src/lib/seed-menu.ts` while keeping live 86 / featured toggles.
 
 ### 2. WhatsApp
 
@@ -54,14 +58,16 @@ Resend: `RESEND_API_KEY` and `EMAIL_FROM` (verify the sending domain in Resend f
 
 ### 4. Deploy
 
-Vercel: import the repo, paste the env vars, set `NEXT_PUBLIC_SITE_URL` to the production URL (it is used in tracking links inside the messages). Staff can "Add to Home Screen" `/admin` on a tablet or phone; the app ships a web manifest.
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/JUPUni/route86&project-name=route86)
+
+Import the repo on Vercel (the button above does it). It builds and runs against the live database with no extra configuration. Then add the WhatsApp/email env vars from `.env.example` and set `NEXT_PUBLIC_SITE_URL` to the production URL so the links inside customer messages point at the right place. Staff can "Add to Home Screen" `/admin` on a tablet or phone; the app ships a web manifest.
 
 ## How an order flows
 
-1. `POST /api/orders` re-prices the cart against the live menu (clients never set prices), validates options and phone (Anguilla local numbers get `+1 264`), inserts the order.
+1. `POST /api/orders` validates the cart and phone (Anguilla local numbers get `+1 264`), then calls the `create_order` Postgres function, which re-prices every line from `menu_items` (clients never set prices) and inserts the order.
 2. In the background it sends the customer an "order received" WhatsApp + email, pings the store (WhatsApp/email if configured), and broadcasts to Realtime.
-3. The dashboard (`/admin`) is subscribed to `postgres_changes` on `orders` and to the `store:orders` broadcast; it chimes, shows a browser notification and flashes the tab title. It also polls as a fallback.
-4. Staff press **Ready ✈️**: `PATCH /api/orders/[id]/status` updates the row, sends the "smooth landing" WhatsApp + email, and broadcasts to `order:{id}` so the customer's page flips instantly.
+3. A database trigger broadcasts every insert/update to `store:orders` and `order:{id}` over Supabase Realtime. The dashboard (`/admin`) listens to that plus `postgres_changes` on `orders`; it chimes, shows a browser notification and flashes the tab title. It also polls as a fallback.
+4. Staff press **Ready ✈️**: `PATCH /api/orders/[id]/status` updates the row through their own RLS-checked session and sends the "smooth landing" WhatsApp + email; the trigger flips the customer's page instantly.
 5. Every notification attempt is written to the `notifications` table (sent / failed / skipped + provider id) so nothing is silent.
 
 ## Project map
