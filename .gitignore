@@ -44,3 +44,6 @@ next-env.d.ts
 
 # seed build
 .seed-tmp
+
+# agent worktrees
+.claude/worktrees/
