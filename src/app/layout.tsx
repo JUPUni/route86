@@ -9,21 +9,32 @@ const nunito = Nunito({ subsets: ["latin"], variable: "--font-nunito", display: 
 const caveat = Caveat({ subsets: ["latin"], variable: "--font-caveat", display: "swap" });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.fetelabstest2.site"),
   title: {
     default: `${BRAND.name} · ${BRAND.tagline} · Anguilla`,
     template: `%s · ${BRAND.name}`,
   },
   description: `${BRAND.taglineLong}, by ${BRAND.chef}. Order online for pickup or delivery. Next to AXA Airport, George Hill, Anguilla.`,
   manifest: "/manifest.webmanifest",
-  icons: { icon: "/icons/icon-32.png", apple: "/icons/icon-180.png" },
+  icons: {
+    icon: [
+      { url: "/icons/icon.svg", type: "image/svg+xml" },
+      { url: "/icons/icon-32.png", sizes: "32x32" },
+    ],
+    apple: "/icons/icon-180.png",
+  },
   openGraph: {
     title: `${BRAND.name} · ${BRAND.tagline}`,
     description: `Order online. ${BRAND.taglineLong}. George Hill, Anguilla.`,
-    images: ["/brand/logo.png"],
+    images: [{ url: "/brand/og.png", width: 1200, height: 630 }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    images: ["/brand/og.png"],
   },
 };
 
-export const viewport: Viewport = { themeColor: "#1b1b1b" };
+export const viewport: Viewport = { themeColor: "#04080A" };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (

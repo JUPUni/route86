@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1600" viewBox="0 0 1600 1600" role="img" aria-label="FetePass">
+  <title>FetePass</title>
+  <!--
+    Stacked lockup: the pass mark over the wordmark.
+
+    The wordmark is live text in Rubik 800, not outlines, so the @import below is what makes
+    this file correct in a browser. A rasteriser does NOT fetch it (librsvg has no network),
+    so scripts/brand-icons.mjs registers the Rubik ExtraBold TTF with fontconfig first and
+    refuses to run if the family does not resolve — an unregistered Rubik renders as DejaVu
+    Sans and looks plausible, which is the failure worth being loud about.
+
+    Layout is derived from measured Rubik 800 metrics, not guessed:
+      "FETEPASS" ink width = 5.23em, cap height = 0.72em, baseline = capTop + 0.71em.
+    At font-size 250 that is 1307.5 x 180, i.e. 82% of the canvas width.
+      mark   900 x 618.75  y 325.6 .. 944.4
+      gap    150
+      capTop 1094.4, baseline 1271.9, cap bottom 1274.4  -> 325.6 margin top and bottom.
+    The x of 795.83 is 800 less the 0.0167em right sidebearing measured on this string, so
+    the wordmark is optically centred rather than metrically centred.
+  -->
+  <style>@import url('https://fonts.googleapis.com/css2?family=Rubik:wght@800&amp;display=swap');</style>
+  <rect width="1600" height="1600" fill="#04080A"/>
+
+  <g transform="translate(350 325.6) scale(1.40625)">
+    <defs>
+      <clipPath id="fp-body-lockup">
+        <rect x="0" y="0" width="640" height="440" rx="72"/>
+      </clipPath>
+    </defs>
+    <g clip-path="url(#fp-body-lockup)">
+      <rect x="0" y="0" width="640" height="440" fill="#E8F1EE"/>
+      <rect x="470" y="0" width="170" height="440" fill="#1FBF8F"/>
+    </g>
+    <circle cx="470" cy="0" r="40" fill="#04080A"/>
+    <circle cx="470" cy="440" r="40" fill="#04080A"/>
+    <line x1="470" y1="76" x2="470" y2="364" stroke="#04080A" stroke-width="12"
+          stroke-dasharray="24 20" stroke-linecap="butt"/>
+  </g>
+
+  <!-- FETE mint, PASS accent: the accent earns its place once per artifact, on the stub in
+       the mark and on the second half of the word. -->
+  <text x="795.83" y="1271.9" text-anchor="middle"
+        font-family="Rubik" font-weight="800" font-size="250" letter-spacing="0">
+    <tspan fill="#E8F1EE">FETE</tspan><tspan fill="#1FBF8F">PASS</tspan>
+  </text>
+</svg>
