@@ -1,8 +1,16 @@
 import type { Metadata, Viewport } from "next";
 import { Anton, Quicksand, Nunito, Caveat } from "next/font/google";
 import "./globals.css";
-import { BRAND } from "@/lib/brand";
 import { siteUrl } from "@/lib/notify/templates";
+
+/**
+ * The FetePass strings, deliberately local rather than added to BRAND. BRAND is the
+ * restaurant's own identity and still drives every screen; the icons, manifest, page
+ * title and link preview are the surfaces that carry FetePass. Keeping them here means
+ * the two cannot be confused for one source of truth, and the four places that repeat
+ * these strings stay in step.
+ */
+const FETEPASS = { name: "FetePass", tagline: "One pass for every fete" } as const;
 
 const anton = Anton({ weight: "400", subsets: ["latin"], variable: "--font-anton", display: "swap" });
 const quicksand = Quicksand({ subsets: ["latin"], variable: "--font-quicksand", display: "swap" });
@@ -18,10 +26,13 @@ export const metadata: Metadata = {
   // env overrides, which is why there should not be a second resolver.
   metadataBase: new URL(siteUrl()),
   title: {
-    default: `${BRAND.name} · ${BRAND.tagline} · Anguilla`,
-    template: `%s · ${BRAND.name}`,
+    default: `${FETEPASS.name} · ${FETEPASS.tagline}`,
+    template: `%s · ${FETEPASS.name}`,
   },
-  description: `${BRAND.taglineLong}, by ${BRAND.chef}. Order online for pickup or delivery. Next to AXA Airport, George Hill, Anguilla.`,
+  // The description keeps the facts that are still true of this app -- what it does and
+  // where it is -- and drops the restaurant's name and chef, which the title no longer
+  // carries. Nothing here claims anything about FetePass beyond the tagline given.
+  description: `${FETEPASS.tagline}. Order online for pickup or delivery. Next to AXA Airport, George Hill, Anguilla.`,
   manifest: "/manifest.webmanifest",
   icons: {
     icon: [
@@ -30,18 +41,16 @@ export const metadata: Metadata = {
     ],
     apple: "/icons/icon-180.png",
   },
-  // The link preview carries the FetePass lockup, so its title and description are
-  // FetePass's rather than BRAND's -- an image saying one thing above text saying another
-  // is the worst of both. The page's own <title> and description below stay the site's.
+  // The link preview carries the FetePass lockup, so its title and description match it.
   openGraph: {
-    title: "FetePass",
-    description: "One pass for every fete",
+    title: FETEPASS.name,
+    description: FETEPASS.tagline,
     images: [{ url: "/brand/og.png", width: 1200, height: 630 }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "FetePass",
-    description: "One pass for every fete",
+    title: FETEPASS.name,
+    description: FETEPASS.tagline,
     images: ["/brand/og.png"],
   },
 };
