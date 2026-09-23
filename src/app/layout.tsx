@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Anton, Quicksand, Nunito, Caveat } from "next/font/google";
 import "./globals.css";
 import { BRAND } from "@/lib/brand";
+import { siteUrl } from "@/lib/notify/templates";
 
 const anton = Anton({ weight: "400", subsets: ["latin"], variable: "--font-anton", display: "swap" });
 const quicksand = Quicksand({ subsets: ["latin"], variable: "--font-quicksand", display: "swap" });
@@ -9,7 +10,13 @@ const nunito = Nunito({ subsets: ["latin"], variable: "--font-nunito", display: 
 const caveat = Caveat({ subsets: ["latin"], variable: "--font-caveat", display: "swap" });
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.fetelabstest2.site"),
+  // siteUrl() rather than reading NEXT_PUBLIC_SITE_URL here: this deployment sets that
+  // variable to an EMPTY STRING, which `??` does not treat as absent, so `new URL("")`
+  // threw and every Vercel build failed while CI stayed green (Actions does not set the
+  // variable at all, so the fallback fired there). siteUrl() tests truthiness and falls
+  // back to VERCEL_PROJECT_PRODUCTION_URL -- it already knew about this project's empty
+  // env overrides, which is why there should not be a second resolver.
+  metadataBase: new URL(siteUrl()),
   title: {
     default: `${BRAND.name} · ${BRAND.tagline} · Anguilla`,
     template: `%s · ${BRAND.name}`,
