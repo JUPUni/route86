@@ -23,13 +23,18 @@ export const metadata: Metadata = {
     ],
     apple: "/icons/icon-180.png",
   },
+  // The link preview carries the FetePass lockup, so its title and description are
+  // FetePass's rather than BRAND's -- an image saying one thing above text saying another
+  // is the worst of both. The page's own <title> and description below stay the site's.
   openGraph: {
-    title: `${BRAND.name} · ${BRAND.tagline}`,
-    description: `Order online. ${BRAND.taglineLong}. George Hill, Anguilla.`,
+    title: "FetePass",
+    description: "One pass for every fete",
     images: [{ url: "/brand/og.png", width: 1200, height: 630 }],
   },
   twitter: {
     card: "summary_large_image",
+    title: "FetePass",
+    description: "One pass for every fete",
     images: ["/brand/og.png"],
   },
 };

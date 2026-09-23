@@ -1,7 +1,7 @@
 {
   "name": "FetePass",
   "short_name": "FetePass",
-  "description": "Asian · Caribbean Fusion. Order online.",
+  "description": "One pass for every fete",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#04080A",

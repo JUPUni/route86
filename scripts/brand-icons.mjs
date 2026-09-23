@@ -295,10 +295,27 @@ async function main() {
   // Link preview.
   await png(lockup, 1200, path.join(BRAND_OUT, "og-square.png"));
 
-  const OG_W = 1200, OG_H = 630, LOCKUP_H = 560;
-  const scaled = await sharp(lockup, { density: 384 }).resize(LOCKUP_H, LOCKUP_H).png().toBuffer();
+  /*
+   * The 1200x630 card. LOCKUP_H is the size the square lockup is rendered at, which is
+   * taller than the card -- the lockup's own art fills 59% of its square, so a lockup
+   * scaled to fit inside 630 leaves the mark small and adrift. At 675 the art lands at
+   * 400px, 64% of the card's height, which was picked by rendering 560 / 675 / 767 and
+   * looking: 560 is lost in the space and 767 puts the wordmark against the bottom edge.
+   *
+   * Overflow is cropped rather than scaled away, which is only safe because the lockup's
+   * ground is the same flat ink as the card's, so the seam is invisible.
+   */
+  const OG_W = 1200, OG_H = 630, LOCKUP_H = 675;
+  let scaled = await sharp(lockup, { density: 384 }).resize(LOCKUP_H, LOCKUP_H).png().toBuffer();
+  if (LOCKUP_H > OG_H) {
+    scaled = await sharp(scaled)
+      .extract({ left: 0, top: Math.round((LOCKUP_H - OG_H) / 2), width: LOCKUP_H, height: OG_H })
+      .png()
+      .toBuffer();
+  }
+  const pastedH = Math.min(LOCKUP_H, OG_H);
   await sharp({ create: { width: OG_W, height: OG_H, channels: 4, background: INK } })
-    .composite([{ input: scaled, left: Math.round((OG_W - LOCKUP_H) / 2), top: Math.round((OG_H - LOCKUP_H) / 2) }])
+    .composite([{ input: scaled, left: Math.round((OG_W - LOCKUP_H) / 2), top: Math.round((OG_H - pastedH) / 2) }])
     .png({ compressionLevel: 9 })
     .toFile(path.join(BRAND_OUT, "og.png"));
   written.push(path.join(BRAND_OUT, "og.png"));
@@ -360,6 +377,25 @@ async function main() {
   for (const p of pixels(tiny)) if (!solid.some((c) => near(p, c, 6))) soft++;
   if (soft > 8) {
     throw new Error(`icon-16.png blends ${soft} px; the mark is off the pixel grid (expected the 4 rounded corners)`);
+  }
+
+  // The card must be the size the meta tags claim, and the art must not run off it --
+  // the lockup is rendered larger than the card and cropped, so an overshoot here shows
+  // as a wordmark with its descenders sliced off in every link preview.
+  const og = await raw(sharp, path.join(BRAND_OUT, "og.png"));
+  if (og.info.width !== OG_W || og.info.height !== OG_H) {
+    throw new Error(`og.png is ${og.info.width}x${og.info.height}, not ${OG_W}x${OG_H}`);
+  }
+  let ogTop = og.info.height, ogBottom = -1, ogLeft = og.info.width, ogRight = -1;
+  for (const p of pixels(og)) {
+    if (isInk(p)) continue;
+    if (p.y < ogTop) ogTop = p.y;
+    if (p.y > ogBottom) ogBottom = p.y;
+    if (p.x < ogLeft) ogLeft = p.x;
+    if (p.x > ogRight) ogRight = p.x;
+  }
+  if (ogTop < 8 || ogBottom > OG_H - 9 || ogLeft < 8 || ogRight > OG_W - 9) {
+    throw new Error(`og.png art runs to the edge (top ${ogTop}, bottom ${OG_H - 1 - ogBottom}, left ${ogLeft}, right ${OG_W - 1 - ogRight})`);
   }
 
   // The .ico must be well formed and carry the sizes a tab and a bookmark ask for, and
