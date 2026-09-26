@@ -39,13 +39,21 @@ export const metadata: Metadata = {
       { url: "/icons/icon.svg", type: "image/svg+xml" },
       { url: "/icons/icon-32.png", sizes: "32x32" },
     ],
-    apple: "/icons/icon-180.png",
+    apple: [
+      { url: "/icons/icon-180.png", sizes: "180x180" },
+      { url: "/icons/icon-167.png", sizes: "167x167" },
+      { url: "/icons/icon-152.png", sizes: "152x152" },
+      { url: "/icons/icon-120.png", sizes: "120x120" },
+    ],
   },
   // The link preview carries the FetePass lockup, so its title and description match it.
   openGraph: {
     title: FETEPASS.name,
     description: FETEPASS.tagline,
-    images: [{ url: "/brand/og.png", width: 1200, height: 630 }],
+    images: [
+      { url: "/brand/og.png", width: 1200, height: 630 },
+      { url: "/brand/og-square.png", width: 1200, height: 1200 },
+    ],
   },
   twitter: {
     card: "summary_large_image",

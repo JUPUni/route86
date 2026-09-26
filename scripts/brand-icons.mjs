@@ -4,6 +4,15 @@
  *
  *   node scripts/brand-icons.mjs [--font-file=/path/to/Rubik-ExtraBold.ttf]
  *
+ * Sources (all in brand/, exported from the "Pulled" ticket-stub board in Claude Design):
+ *   fetepass-icon-default.svg   the Apple-style app icon: squircle, gradient body, soft
+ *                               shadow. Also the source of the maskable icon, see below.
+ *   fetepass-icon-{dark,tinted,clear}.svg  the other three iOS appearances. This repo has
+ *                               no native target, so they are kept as sources only.
+ *   fetepass-favicon.svg        the simplified mark (no slot) for 32px and below.
+ *   fetepass-lockup-stacked.svg mark over the "FetePASS" wordmark, for link previews.
+ *   fetepass-lockup-{dark,light}.svg  horizontal lockups, used straight as SVG in the app.
+ *
  * The lockup's wordmark is live text in Rubik 800. A rasteriser does not fetch the
  * @import in that file -- librsvg has no network -- so this script registers a Rubik
  * ExtraBold TTF with fontconfig before sharp is loaded, and refuses to write anything
@@ -17,7 +26,7 @@
  * fc-match "Rubik:weight=extrabold" resolves to DejaVu Sans Bold. The static TTF in
  * brand/fonts/ is the real thing (OFL-1.1, see the licence beside it).
  */
-import { mkdir, copyFile, readFile, writeFile, access } from "node:fs/promises";
+import { mkdir, copyFile, readFile, writeFile, access, stat } from "node:fs/promises";
 import { createWriteStream } from "node:fs";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -31,18 +40,30 @@ const BRAND_OUT = path.join(ROOT, "public", "brand");
 const APP_DIR = path.join(ROOT, "src", "app");
 
 const INK = "#04080A";
+const INK_RGB = { r: 0x04, g: 0x08, b: 0x0a };
 const MINT = { r: 0xe8, g: 0xf1, b: 0xee };
 const ACCENT = { r: 0x1f, g: 0xbf, b: 0x8f };
+
+/** Sizes of the `purpose: any` icon. 1024 is the store/PWA master, 512/192 the manifest set. */
+const ICON_SIZES = [1024, 512, 192];
+/** apple-touch-icon sizes: iPhone @3x, iPad Pro, iPad, iPhone @2x. */
+const APPLE_SIZES = [180, 167, 152, 120];
 
 /** Android guarantees only a circle of 80% of the icon's width on a maskable icon. */
 const MASKABLE_SAFE_FRACTION = 0.8;
 /**
- * The icon SVG draws its mark at 76% of the width, which is right for `purpose: any`
- * and too big for the safe circle. The ground is a flat ink field, so scaling the whole
- * icon down and padding with the same ink is indistinguishable from redrawing the mark
- * smaller: 76% * 0.8203 = 62.3%, which fits. One source file, two honest renders.
+ * The app icon draws the mark at scale 0.74 of its 1024 box, which is right for
+ * `purpose: any` and, once the drop shadow is counted, too big for the safe circle.
+ * The maskable icon is the same art on a full-bleed ink ground with the mark at
+ * 0.74 * 0.82 = 0.61, which lands the mark and its shadow inside the circle. It is
+ * derived from the same source file by text substitution (see maskableSvg) rather
+ * than kept as a second drawing that could drift.
  */
-const MASKABLE_SCALE = 0.8203;
+const MASKABLE_MARK_SCALE = 0.82;
+
+/** The link-preview card is 1200x630 with the stacked lockup rendered 560px tall. */
+const OG_W = 1200, OG_H = 630, OG_LOCKUP_H = 560;
+const OG_MAX_BYTES = 300 * 1024;
 
 const RUBIK_TTF = path.join(BRAND, "fonts", "Rubik-ExtraBold.ttf");
 const RUBIK_CSS = "https://fonts.googleapis.com/css2?family=Rubik:wght@800";
@@ -69,17 +90,60 @@ async function fetchRubik(dest) {
  * Make brand/fonts/ visible to the fontconfig inside sharp's prebuilt libvips, for this
  * process only.
  *
- * Measured against a control (the same probe with no font anywhere): sharp honours
- * XDG_DATA_HOME and ignores both FONTCONFIG_FILE and FONTCONFIG_PATH -- and setting
- * FONTCONFIG_FILE is worse than useless, because it replaces the default config and
- * breaks resolution that would otherwise have worked. The default config includes
- * <dir prefix="xdg">fonts</dir>, so a copy under $XDG_DATA_HOME/fonts is found.
+ * Linux and macOS, measured against a control (the same probe with no font anywhere):
+ * sharp honours XDG_DATA_HOME and ignores both FONTCONFIG_FILE and FONTCONFIG_PATH --
+ * and setting FONTCONFIG_FILE is worse than useless, because it replaces the default
+ * config and breaks resolution that would otherwise have worked. The default config
+ * includes <dir prefix="xdg">fonts</dir>, so a copy under $XDG_DATA_HOME/fonts is found.
+ *
+ * Windows, measured the same way: the prebuilt libvips ships no fonts.conf at all, so
+ * XDG_DATA_HOME does nothing and FONTCONFIG_FILE is the only handle. The config it points
+ * at lists brand/fonts AND the system fonts folder (fontconfig's WINDOWSFONTDIR token),
+ * and appends Arial to every pattern as the family of last resort. Neither is
+ * decoration. A hand-written config has none of the default aliases, so an unknown
+ * family falls back by score alone -- and the score prefers the weight-800 face,
+ * which is Rubik ExtraBold itself. Measured: without the rule "NoSuchFontXYZ" renders
+ * at Rubik's 5.23 em whether or not brand/fonts is listed, and assertRubikRenders'
+ * fallback comparison cannot tell registered from unregistered. With the rule, an
+ * unknown family renders Arial (5.09 em), and so does "Rubik" when brand/fonts is
+ * left out of the config, which is exactly the failure the comparison is for.
+ * The cache dir is kept under node_modules for the same reason ~/.fonts is avoided
+ * below -- a cache in %LOCALAPPDATA% that remembers a font from a previous run's
+ * location renders blank once that file moves.
+ *
+ * One more Windows-only wrinkle: fontconfig reads the variable through the C runtime's
+ * own copy of the environment, which is fixed at process start, so assigning
+ * process.env.FONTCONFIG_FILE here does nothing (measured: the same config resolves
+ * Rubik when set in the parent shell and not when set in-process). The script
+ * therefore re-runs itself once as a child with the variable in its environment and
+ * exits with the child's status; the child sees the variable already set and carries on.
  *
  * Writing to ~/.fonts also works and leaves the machine changed behind us, which makes
  * one run's result depend on the last one's.
  */
 async function registerFont(fontFile) {
-  const xdg = path.join(ROOT, "node_modules", ".cache", "brand-icons", "xdg");
+  const cache = path.join(ROOT, "node_modules", ".cache", "brand-icons");
+  if (process.platform === "win32") {
+    const fcDir = path.join(cache, "fontconfig");
+    await mkdir(path.join(fcDir, "cache"), { recursive: true });
+    const fwd = (p) => p.replace(/\\/g, "/");
+    const conf = `<?xml version="1.0"?><!DOCTYPE fontconfig SYSTEM "fonts.dtd"><fontconfig>` +
+      `<dir>${fwd(path.dirname(fontFile))}</dir><dir>WINDOWSFONTDIR</dir>` +
+      `<match target="pattern"><edit name="family" mode="append_last"><string>Arial</string></edit></match>` +
+      `<cachedir>${fwd(path.join(fcDir, "cache"))}</cachedir></fontconfig>`;
+    const confPath = path.join(fcDir, "fonts.conf");
+    await writeFile(confPath, conf);
+    if (process.env.FONTCONFIG_FILE !== confPath) {
+      const { spawnSync } = await import("node:child_process");
+      const child = spawnSync(process.execPath, process.argv.slice(1), {
+        stdio: "inherit",
+        env: { ...process.env, FONTCONFIG_FILE: confPath },
+      });
+      process.exit(child.status ?? 1);
+    }
+    return;
+  }
+  const xdg = path.join(cache, "xdg");
   const fontsDir = path.join(xdg, "fonts");
   await mkdir(fontsDir, { recursive: true });
   await copyFile(fontFile, path.join(fontsDir, path.basename(fontFile)));
@@ -181,6 +245,24 @@ async function assertRubikRenders(sharp) {
   }
 }
 
+/**
+ * The maskable icon, derived from the app icon's own markup: the squircle clip and its
+ * gradient ground become a full-bleed ink rect, and the mark group is scaled down so the
+ * mark and its shadow clear Android's safe circle. Both substitutions are asserted, so a
+ * change to the source's structure fails here instead of quietly producing the `any`
+ * icon twice.
+ */
+function maskableSvg(src) {
+  const ground = /<g clip-path="url\(#\w+\)">(?:<path d="[^"]+" fill="url\(#\w+\)"\/>){2}/;
+  const mark = /<g transform="translate\(512 512\) scale\(0\.74\) translate\(-512 -556\)">/;
+  if (!ground.test(src)) throw new Error("fetepass-icon-default.svg: the clipped gradient ground was not found");
+  if (!mark.test(src)) throw new Error("fetepass-icon-default.svg: the mark group transform was not found");
+  const s = (0.74 * MASKABLE_MARK_SCALE).toFixed(4);
+  return src
+    .replace(ground, `<g><rect width="1024" height="1024" fill="${INK}"/>`)
+    .replace(mark, `<g transform="translate(512 512) scale(${s}) translate(-512 -556)">`);
+}
+
 /** Every pixel of a channel-separated raw buffer, as {x, y, r, g, b, a}. */
 function* pixels({ data, info }) {
   for (let y = 0; y < info.height; y++) {
@@ -192,7 +274,9 @@ function* pixels({ data, info }) {
 }
 const near = (p, c, tol = 12) =>
   Math.abs(p.r - c.r) <= tol && Math.abs(p.g - c.g) <= tol && Math.abs(p.b - c.b) <= tol;
-const isInk = (p) => near(p, { r: 0x04, g: 0x08, b: 0x0a }, 14);
+const isInk = (p) => near(p, INK_RGB, 14);
+/** Ground pixels: opaque ink, or fully transparent (the app icon's clipped corners). */
+const isGround = (p) => p.a === 0 || (p.a === 255 && isInk(p));
 
 /**
  * Pack rendered PNGs into a multi-size .ico.
@@ -227,6 +311,14 @@ async function raw(sharp, file) {
   return sharp(file).raw().toBuffer({ resolveWithObject: true });
 }
 
+function corners(img) {
+  const w = img.info.width, h = img.info.height;
+  return [[0, 0], [w - 1, 0], [0, h - 1], [w - 1, h - 1]].map(([x, y]) => {
+    const i = (y * w + x) * img.info.channels;
+    return { x, y, r: img.data[i], g: img.data[i + 1], b: img.data[i + 2], a: img.info.channels === 4 ? img.data[i + 3] : 255 };
+  });
+}
+
 async function main() {
   const fontArg = process.argv.find((a) => a.startsWith("--font-file="))?.slice("--font-file=".length);
   const fontFile = fontArg ?? process.env.RUBIK_TTF ?? RUBIK_TTF;
@@ -238,7 +330,7 @@ async function main() {
   await assertFontFileIsRubik(fontFile);
   await registerFont(fontFile);
 
-  // sharp initialises fontconfig on load, so it must be imported after FONTCONFIG_FILE is set.
+  // sharp initialises fontconfig on load, so it must be imported after the font is registered.
   const sharp = (await import("sharp")).default;
   await assertRubikRenders(sharp);
   console.log(`  Rubik resolved from ${path.relative(ROOT, fontFile)}`);
@@ -246,30 +338,35 @@ async function main() {
   await mkdir(ICONS_OUT, { recursive: true });
   await mkdir(BRAND_OUT, { recursive: true });
 
-  const icon = path.join(BRAND, "fetepass-icon-ink.svg");
+  const icon = path.join(BRAND, "fetepass-icon-default.svg");
   const favicon = path.join(BRAND, "fetepass-favicon.svg");
   const lockup = path.join(BRAND, "fetepass-lockup-stacked.svg");
+  const maskable = Buffer.from(maskableSvg(await readFile(icon, "utf8")));
 
   const written = [];
-  const png = async (src, size, out) => {
-    await sharp(src, { density: 384 }).resize(size, size).png({ compressionLevel: 9 }).toFile(out);
+  const png = async (src, size, out, flatten = false) => {
+    let s = sharp(src, { density: 384 }).resize(size, size);
+    if (flatten) s = s.flatten({ background: INK });
+    await s.png({ compressionLevel: 9 }).toFile(out);
     written.push(out);
   };
 
-  // App icons, purpose `any`.
-  for (const size of [512, 192, 180]) {
+  // App icons, purpose `any`. The squircle's corners stay transparent: shown unmasked
+  // (a desktop PWA install, a browser tab strip) they read as the Apple-style icon.
+  for (const size of ICON_SIZES) {
     await png(icon, size, path.join(ICONS_OUT, `icon-${size}.png`));
   }
 
-  // Purpose `maskable`: the same icon, inset so the mark clears Android's safe circle.
-  const maskableInner = Math.round(512 * MASKABLE_SCALE);
-  const pad = Math.round((512 - maskableInner) / 2);
-  await sharp(icon, { density: 384 })
-    .resize(maskableInner, maskableInner)
-    .extend({ top: pad, bottom: 512 - maskableInner - pad, left: pad, right: 512 - maskableInner - pad, background: INK })
-    .png({ compressionLevel: 9 })
-    .toFile(path.join(ICONS_OUT, "icon-maskable-512.png"));
-  written.push(path.join(ICONS_OUT, "icon-maskable-512.png"));
+  // apple-touch-icon: iOS lays its own mask over the full square and renders any
+  // transparency as black, so these are flattened onto ink. The icon's gradient ends in
+  // the same ink, so wherever iOS's superellipse differs from the squircle the seam is
+  // ink on ink.
+  for (const size of APPLE_SIZES) {
+    await png(icon, size, path.join(ICONS_OUT, `icon-${size}.png`), true);
+  }
+
+  // Purpose `maskable`: the same art on a full-bleed ink ground, mark inside the safe circle.
+  await png(maskable, 512, path.join(ICONS_OUT, "icon-maskable-512.png"));
 
   // <=32px: the simplified mark, no slot.
   for (const size of [32, 16]) {
@@ -285,37 +382,26 @@ async function main() {
    * icons that block does declare. Before this it was still Next's default mark.
    */
   const frames = [];
-  for (const size of [16, 32, 48]) {
+  for (const size of [16, 32]) {
     frames.push({ size, buf: await sharp(favicon, { density: 512 }).resize(size, size).png().toBuffer() });
   }
   const icoPath = path.join(APP_DIR, "favicon.ico");
   await writeFile(icoPath, ico(frames));
   written.push(icoPath);
 
-  // Link preview.
+  // Link previews. The square card is the lockup as drawn.
   await png(lockup, 1200, path.join(BRAND_OUT, "og-square.png"));
 
   /*
-   * The 1200x630 card. LOCKUP_H is the size the square lockup is rendered at, which is
-   * taller than the card -- the lockup's own art fills 59% of its square, so a lockup
-   * scaled to fit inside 630 leaves the mark small and adrift. At 675 the art lands at
-   * 400px, 64% of the card's height, which was picked by rendering 560 / 675 / 767 and
-   * looking: 560 is lost in the space and 767 puts the wordmark against the bottom edge.
-   *
-   * Overflow is cropped rather than scaled away, which is only safe because the lockup's
-   * ground is the same flat ink as the card's, so the seam is invisible.
+   * The 1200x630 card: the lockup rendered OG_LOCKUP_H tall and centred on an ink field
+   * of the same colour as its own ground, so the seam is invisible. The lockup's art
+   * (mark, wordmark, tagline) spans 73% of its square, so at 560 the art is ~410px, 65%
+   * of the card's height -- the mark reads at a glance and the tagline stays clear of
+   * the edges. It fits inside the card, so nothing is cropped.
    */
-  const OG_W = 1200, OG_H = 630, LOCKUP_H = 675;
-  let scaled = await sharp(lockup, { density: 384 }).resize(LOCKUP_H, LOCKUP_H).png().toBuffer();
-  if (LOCKUP_H > OG_H) {
-    scaled = await sharp(scaled)
-      .extract({ left: 0, top: Math.round((LOCKUP_H - OG_H) / 2), width: LOCKUP_H, height: OG_H })
-      .png()
-      .toBuffer();
-  }
-  const pastedH = Math.min(LOCKUP_H, OG_H);
+  const scaled = await sharp(lockup, { density: 384 }).resize(OG_LOCKUP_H, OG_LOCKUP_H).png().toBuffer();
   await sharp({ create: { width: OG_W, height: OG_H, channels: 4, background: INK } })
-    .composite([{ input: scaled, left: Math.round((OG_W - LOCKUP_H) / 2), top: Math.round((OG_H - pastedH) / 2) }])
+    .composite([{ input: scaled, left: Math.round((OG_W - OG_LOCKUP_H) / 2), top: Math.round((OG_H - OG_LOCKUP_H) / 2) }])
     .png({ compressionLevel: 9 })
     .toFile(path.join(BRAND_OUT, "og.png"));
   written.push(path.join(BRAND_OUT, "og.png"));
@@ -340,20 +426,23 @@ async function main() {
   const any = await raw(sharp, path.join(ICONS_OUT, "icon-512.png"));
   let anyOutside = 0;
   for (const p of pixels(any)) {
-    if (!isInk(p) && Math.hypot(p.x - cx, p.y - cy) > safeR) anyOutside++;
+    if (!isGround(p) && Math.hypot(p.x - cx, p.y - cy) > safeR) anyOutside++;
   }
   if (anyOutside === 0) {
     throw new Error("the `any` icon fits inside the maskable safe circle, so it is drawn too small to be worth a separate file");
   }
 
-  // Corners must be opaque ink: a transparent icon corner shows as white on iOS.
-  for (const name of ["icon-512.png", "icon-192.png", "icon-180.png", "icon-maskable-512.png", "icon-32.png", "icon-16.png"]) {
-    const img = await raw(sharp, path.join(ICONS_OUT, name));
-    const w = img.info.width, h = img.info.height;
-    for (const [x, y] of [[0, 0], [w - 1, 0], [0, h - 1], [w - 1, h - 1]]) {
-      const i = (y * w + x) * img.info.channels;
-      const p = { r: img.data[i], g: img.data[i + 1], b: img.data[i + 2], a: img.info.channels === 4 ? img.data[i + 3] : 255 };
-      if (p.a !== 255 || !isInk(p)) throw new Error(`${name} corner ${x},${y} is not opaque ink (${p.r},${p.g},${p.b},${p.a})`);
+  // Corners: the squircle icons must be fully transparent there (a half-clipped corner
+  // shows as a grey fringe), and everything flattened or full-bleed must be opaque ink.
+  for (const size of ICON_SIZES) {
+    const name = `icon-${size}.png`;
+    for (const p of corners(await raw(sharp, path.join(ICONS_OUT, name)))) {
+      if (p.a !== 0) throw new Error(`${name} corner ${p.x},${p.y} is not transparent (alpha ${p.a})`);
+    }
+  }
+  for (const name of [...APPLE_SIZES.map((s) => `icon-${s}.png`), "icon-maskable-512.png", "icon-32.png", "icon-16.png"]) {
+    for (const p of corners(await raw(sharp, path.join(ICONS_OUT, name)))) {
+      if (p.a !== 255 || !isInk(p)) throw new Error(`${name} corner ${p.x},${p.y} is not opaque ink (${p.r},${p.g},${p.b},${p.a})`);
     }
   }
 
@@ -368,34 +457,27 @@ async function main() {
   if (mint === 0) throw new Error("icon-16.png has no mint pixels");
   if (accent === 0) throw new Error("icon-16.png has no accent pixels: the stub did not survive the downscale");
 
-  // The favicon's geometry is snapped so the mark lands on whole pixels at 16, 24 and 32.
-  // Only the four rounded corners should blend; anything more means the alignment was lost
-  // and the icon rasterises soft, which reads as blurred rather than small. Measured: the
-  // earlier unaligned geometry blended 50 of the 256 pixels here, this one blends 4.
-  const solid = [{ r: 0x04, g: 0x08, b: 0x0a }, MINT, ACCENT];
-  let soft = 0;
-  for (const p of pixels(tiny)) if (!solid.some((c) => near(p, c, 6))) soft++;
-  if (soft > 8) {
-    throw new Error(`icon-16.png blends ${soft} px; the mark is off the pixel grid (expected the 4 rounded corners)`);
-  }
-
-  // The card must be the size the meta tags claim, and the art must not run off it --
-  // the lockup is rendered larger than the card and cropped, so an overshoot here shows
-  // as a wordmark with its descenders sliced off in every link preview.
-  const og = await raw(sharp, path.join(BRAND_OUT, "og.png"));
-  if (og.info.width !== OG_W || og.info.height !== OG_H) {
-    throw new Error(`og.png is ${og.info.width}x${og.info.height}, not ${OG_W}x${OG_H}`);
-  }
-  let ogTop = og.info.height, ogBottom = -1, ogLeft = og.info.width, ogRight = -1;
-  for (const p of pixels(og)) {
-    if (isInk(p)) continue;
-    if (p.y < ogTop) ogTop = p.y;
-    if (p.y > ogBottom) ogBottom = p.y;
-    if (p.x < ogLeft) ogLeft = p.x;
-    if (p.x > ogRight) ogRight = p.x;
-  }
-  if (ogTop < 8 || ogBottom > OG_H - 9 || ogLeft < 8 || ogRight > OG_W - 9) {
-    throw new Error(`og.png art runs to the edge (top ${ogTop}, bottom ${OG_H - 1 - ogBottom}, left ${ogLeft}, right ${OG_W - 1 - ogRight})`);
+  // The cards must be the size the meta tags claim, the art must sit inside them, and
+  // they must stay small enough for every crawler to fetch (300 KB).
+  for (const [name, w, h] of [["og.png", OG_W, OG_H], ["og-square.png", 1200, 1200]]) {
+    const file = path.join(BRAND_OUT, name);
+    const og = await raw(sharp, file);
+    if (og.info.width !== w || og.info.height !== h) {
+      throw new Error(`${name} is ${og.info.width}x${og.info.height}, not ${w}x${h}`);
+    }
+    let top = og.info.height, bottom = -1, left = og.info.width, right = -1;
+    for (const p of pixels(og)) {
+      if (isInk(p)) continue;
+      if (p.y < top) top = p.y;
+      if (p.y > bottom) bottom = p.y;
+      if (p.x < left) left = p.x;
+      if (p.x > right) right = p.x;
+    }
+    if (top < 8 || bottom > h - 9 || left < 8 || right > w - 9) {
+      throw new Error(`${name} art runs to the edge (top ${top}, bottom ${h - 1 - bottom}, left ${left}, right ${w - 1 - right})`);
+    }
+    const { size } = await stat(file);
+    if (size > OG_MAX_BYTES) throw new Error(`${name} is ${size} bytes, over the ${OG_MAX_BYTES} byte link-preview budget`);
   }
 
   // The .ico must be well formed and carry the sizes a tab and a bookmark ask for, and
@@ -403,7 +485,7 @@ async function main() {
   const icoBytes = await readFile(icoPath);
   if (icoBytes.readUInt16LE(0) !== 0 || icoBytes.readUInt16LE(2) !== 1) throw new Error("favicon.ico has a bad header");
   const entries = icoBytes.readUInt16LE(4);
-  if (entries !== 3) throw new Error(`favicon.ico holds ${entries} images, expected 3`);
+  if (entries !== frames.length) throw new Error(`favicon.ico holds ${entries} images, expected ${frames.length}`);
   for (let i = 0; i < entries; i++) {
     const e = 6 + 16 * i;
     const size = icoBytes[e] || 256;
@@ -420,7 +502,7 @@ async function main() {
   }
 
   for (const f of written.sort()) console.log(`  ${path.relative(ROOT, f)}`);
-  console.log(`\n  checks passed: maskable safe circle clear, ${anyOutside} px of the \`any\` icon outside it, corners opaque ink, 16px keeps ${mint} mint / ${accent} accent px and blends only ${soft}`);
+  console.log(`\n  checks passed: maskable safe circle clear, ${anyOutside} px of the \`any\` icon outside it, corners as expected, 16px keeps ${mint} mint / ${accent} accent px, cards inside the size budget`);
 }
 
 await main();
